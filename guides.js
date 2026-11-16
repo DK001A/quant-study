@@ -149,17 +149,27 @@ data/cache/
 |---|---|---|---|---|
 | Q001 |  |  | 待解决 / 已解决 / 挂起 / 放弃 |  |`),
 
- T('mastery','掌握度台账模板','notes/mastery.md','每个知识点标 L 级；期末要求全部 ≥ L2，阶段出口 = L3', String.raw`# 掌握度台账 · Mastery Ledger
+ T('mastery','掌握度台账模板','notes/mastery.md','每天收工填一行：L级 / 证据 / 卡点 / 心得 / 复习日，网页可直接填并导出', String.raw`# 掌握度台账 · Mastery Ledger
 
 > 四级判定看「合上资料能不能做出来」，不看「看懂没」
 > L0 没听过 / L1 看得懂但写不出 / L2 能独立做对常规题 / L3 会用且说得出失效边界
 > 期末要求：所有知识点 ≥ L2；阶段出口涉及的知识点必须 L3。
 
-## 台账（每天收工前 2 分钟填一行）
+## 填写规则（每天收工前 2 分钟，当天没填不算完成）
 
-| 日期 | Day | 知识点 | L 级 | 验收动作 | 证据（文件 / commit / 题号） | 下次复习 |
-|---|---|---|---|---|---|---|
-| YYYY-MM-DD | D1 | Git 三态与首次 push | L2 | 默写命令链 + push 成功 | git log --oneline | +1 天 |
+1. **一天一行，当天填**：不要周末补记，记忆会失真。
+2. **证据必须可核对**：写文件路径 / commit 号 / 题号 / 断言输出，禁止写「懂了」「差不多」。
+3. **卡点写具体**：教程和实际不一致、换了工具、报错绕不过去，都写进这一列，并到「notes/deviations.md」记细节。
+4. **心得写一句话**：今天真正学会的是什么、卡在哪、明天先做什么（详细版写进「notes/journal.md」）。
+5. **复习日按 +1 / +7 / +30 天排**：到点晨检或周测覆盖。
+6. 网页「掌握度台账」页可以直接填，填完点「导出 mastery.md」覆盖本文件。
+
+## 台账（每天一行，105 行）
+
+| 日期 | Day | 知识点 | L级 | 验收证据（文件 / commit / 题号） | 卡点 · 教程偏差 | 今日心得 | 下次复习 | 状态 |
+|---|---|---|---|---|---|---|---|---|
+| 2026-11-16 | D2·W1 | 数据抓取与质量报告 | L1 | data/quality_report.md | akshare 字段与教程不同，改用 Tushare 接口 | 第一次拿到真实 A 股数据，停牌日要单独处理 | 2026-11-17 | 进行中 |
+|  |  |  |  |  |  |  |  |  |
 
 ## 复习节奏
 
@@ -183,6 +193,65 @@ data/cache/
 | C 概率论 | 能算、能估、能判 | 未达 |
 | D 微分方程与 SDE | 能建模连续时间、能推 BSM | 未达 |
 | E 三大工程产物 | 产出能被逐行追问的仓库 | 未达 |`),
+
+ T('deviations','教程偏差与替代方案','notes/deviations.md','教程和实际不符时记这里：原说法 / 实际环境 / 替代工具 / 验证结果', String.raw`# 教程偏差与替代方案 · Deviations
+
+> 什么时候记：教程里的命令、库版本、接口、B 站讲次和你的实际环境对不上，或者必须换工具 / 换思路才能跑通。
+> 为什么记：① 下次遇到同样的坑直接查；② 攒起来就是「会排查问题」的证据；③ 帮后来的人少踩一次。
+> 和 errors.md 的区别：errors.md 记「我做错了什么」，这里记「教程或工具本身与实际不符」。
+
+## 索引表
+
+| 编号 | 日期 | Day | 涉及资料 / 教程原话 | 实际环境 | 替代方案 / 换用的工具 | 验证结果 | 状态 |
+|---|---|---|---|---|---|---|---|
+| V001 | YYYY-MM-DD | D__ | 例：教程用 akshare.stock_zh_a_hist | Python 3.12 / akshare 1.14 | 改用 Tushare pro_bar，字段用 trade_date | 拉取 600519 近 30 日成功，行数 30 | 已验证 |
+
+## 一条记录的完整格式（复制这一段）
+
+### V002 | YYYY-MM-DD | Day __ · 主题
+- 教程原文 / 链接：
+- 实际不符的表现（贴报错原文）：
+- 环境信息（OS / Python / 库版本 / 券商接口）：
+- 我试过什么（至少列 2 条）：
+- 最终替代方案（工具 / 命令 / 代码）：
+- 为什么这个方案可行：
+- 验证结果（可核对的输出 / 文件 / commit）：
+- 是否需要回头修教程笔记：是 / 否
+- 状态：待验证 / 已验证 / 已弃用
+
+## 常用替代工具速查（随时补）
+
+| 场景 | 教程常用 | 备选 | 备注 |
+|---|---|---|---|
+| A 股日线 | akshare | Tushare / baostock / Qlib | 注意复权口径与停牌 |
+| 财报 PIT | 通用接口 | 聚宽 get_fundamentals / Wind | 必须带公告日期 |
+| 行情数据库 | CSV | SQLite / parquet | 原始数据不进 Git |
+| 内核安装 | ipykernel | uv / conda | Windows 注意执行策略 |
+`),
+
+ T('journal','每日学习反馈与心得','notes/journal.md','每天结束后写 5 行：学会什么 / 卡在哪 / 怎么解决 / 明天做什么 / 状态评分', String.raw`# 每日学习反馈 · Journal
+
+> 每天收工前 3 分钟写，5 行就够。它比台账更主观，但三个月后回看最能看出你是怎么学会的。
+> 网页「掌握度台账」页可以直接填，填完点「导出 journal.md」覆盖本文件。
+
+## 每日记录（一天一块，最新在上面）
+
+### 2026-11-16 · Day 2
+- 学会了：
+- 卡在哪 / 花了多久：
+- 怎么解决的（或还没解决）：
+- 教程与实际不符的地方（→ deviations.md 编号）：
+- 明天第一件事：
+- 状态评分（1–5）：
+
+---
+
+## 周复盘（每周日 10 分钟）
+
+| 周 | 本周最大收获 | 反复卡住的点 | 下周是否调整计划 | 调整理由 |
+|---|---|---|---|---|
+| W1 |  |  | 否 / 是 |  |
+`),
 
  T('readme','README 模板','README.md','仓库的门面，也让三个月后的自己知道每个目录放什么', String.raw`# A股量化开发 · 15 周 105 天
 
@@ -208,7 +277,7 @@ jupyter lab
 | live/      | 实盘 / 模拟盘对接、下单与风控 |
 | research/  | 实验性 notebook、草稿、可复现小实验 |
 | docs/      | 规则 checklist、数据质量报告、设计文档 |
-| notes/     | errors.md 错题本、mastery.md 掌握度台账 |
+| notes/     | errors.md 错题本、mastery.md 掌握度台账、deviations.md 教程偏差、journal.md 每日心得 |
 
 ## 铁律
 
@@ -259,7 +328,8 @@ window.CLI_FAQ = [
  { q:'PowerShell 里 pip freeze > requirements.txt 生成的文件 pip 读不了？', a:'Windows PowerShell 5.1 的 > 默认写 UTF-16。改用 pip freeze | Out-File -Encoding utf8 requirements.txt，或用 Git Bash / cmd 执行重定向。' },
  { q:'pip 下载慢 / 超时？', a:'换国内镜像：pip install -i https://pypi.tuna.tsinghua.edu.cn/simple jupyterlab ipykernel。说明见「清华 PyPI 镜像」链接。' },
  { q:'不小心把 .venv 或数据文件 commit 进去了？', a:'先补进 .gitignore，再执行 git rm -r --cached .venv 从索引移除（不删本地文件），然后 git commit -m "chore: ignore venv"。' },
- { q:'卡住超过 25 分钟怎么办？', a:'按计划规则：在 notes/errors.md 记一条，写清报错原文与已试过的方法，然后继续下一步，周日统一处理。Day 1 的目标是把链路跑通，不是把每个原理都吃透。' }
+ { q:'卡住超过 25 分钟怎么办？', a:'按计划规则：在 notes/errors.md 记一条，写清报错原文与已试过的方法，然后继续下一步，周日统一处理。Day 1 的目标是把链路跑通，不是把每个原理都吃透。' },
+ { q:'教程和实际环境对不上，或必须换别的工具才能跑通，记在哪？', a:'记在 notes/deviations.md：教程原话、你的环境、试过什么、替代工具与命令、验证结果。分清四处：notes/errors.md 记「我做错了什么」；notes/deviations.md 记「教程或工具与实际不符」；notes/mastery.md 每天填一行 L 级与可核对证据；notes/journal.md 写当天心得（学会什么 / 卡在哪 / 明天第一件事）。网页「掌握度台账」页也能直接填并导出这三份文件。' }
 ];
 
 /* ---------- 资料引用小工具（供步骤内使用） ---------- */
@@ -279,7 +349,7 @@ var DAY1_STEPS = [
    <tr><td>① 本地 Git 仓库</td><td><code>git log --oneline</code> 至少 1 条 commit</td><td>仓库首次 commit 成功</td></tr>
    <tr><td>② 隔离的 .venv + 能跑的 Jupyter</td><td>notebook 里 <code>sys.executable</code> 指向 .venv</td><td>内核绑定成功</td></tr>
    <tr><td>③ 7 个目录骨架 + notes/</td><td>每个目录里有 .gitkeep，GitHub 上能看见</td><td>目录齐全</td></tr>
-   <tr><td>④ 两个笔记模板 + README / .gitignore</td><td>notes/errors.md、notes/mastery.md 有内容</td><td>可直接开始记录</td></tr>
+   <tr><td>④ 四份记录模板 + README / .gitignore</td><td>notes/ 下 errors / mastery / deviations / journal 有表头与示例行</td><td>可直接开始记录</td></tr>
    <tr><td>⑤ 远程仓库</td><td>网页上能看到全部文件</td><td><b>push 成功</b></td></tr></table>
    <p class="g-tip"><b>时间预期：</b>计划写「每天 60 分钟」，那是熟练者节奏。第一次做按 <b>90–120 分钟</b> 算，拆成两天也完全正常，别为了赶进度跳过验收。</p>`,
    cmds:[], out:'能用自己的话把这 5 样东西说一遍，再往下走。', errs:[], res:[], check:'我清楚今天要交出 5 样东西，而不是「装一堆软件」' },
@@ -432,7 +502,7 @@ print(pd.__version__)` }
    <tr><td>live/</td><td>QMT / miniQMT 对接、下单、风控告警</td><td>W15</td></tr>
    <tr><td>research/</td><td>实验性 notebook、草稿、可复现小实验</td><td>W2 D5</td></tr>
    <tr><td>docs/</td><td>A 股规则 checklist、设计文档、data_quality_report.md</td><td>W1 D7</td></tr>
-   <tr><td>notes/</td><td>errors.md 错题本、mastery.md 掌握度台账（原表点名要写）</td><td><b>今天</b></td></tr></table>
+   <tr><td>notes/</td><td>errors.md 错题本、mastery.md 掌握度台账（原表点名要写）、deviations.md 教程偏差、journal.md 每日心得</td><td><b>今天</b></td></tr></table>
    <p>原表列了 6 个目录，但两个模板写在 <code>notes/</code> 下，所以要<b>额外建 notes/</b>。每个空目录放一个空的 <code>.gitkeep</code>，否则 push 后 GitHub 上这些目录会「消失」。</p>`,
    cmds:[
      { os:'Windows · PowerShell', code:String.raw`$dirs = 'data','factors','backtest','live','research','docs','notes'
@@ -451,20 +521,24 @@ ls -a` }
    res:['progitRecord','gitRefCn'],
    check:'7 个目录齐全且各有 .gitkeep，我知道每个目录将来放什么' },
 
- { id:'g8', t:'写 notes/errors.md 与 notes/mastery.md 两个模板', min:8,
-   why:'这两个文件不是形式主义：错题本防「同一个坑栽三次」，掌握度台账防「看懂了误当成会用了」。网页里的错题本和 L0–L3 台账，就是这两个文件的电子化版本。',
-   body:String.raw`<p>直接复制下面「文件模板」区里的两份内容，分别存成 <code>notes/errors.md</code> 和 <code>notes/mastery.md</code>。写不出内容没关系，<b>今天只要把骨架和字段建起来</b>。</p>
-   <p><b>errors.md 关键字段：</b>现象与报错原文 / 我当时以为 / 真正原因 / 正确结论 / 正确思路 / 最小复现命令 / 状态 / 重做记录。末尾附「量化专属高频坑位」清单（前视偏差、幸存者偏差、复权口径、shift 方向、涨跌停规则、随机种子），以后踩坑直接归类。</p>
-   <p><b>mastery.md 关键字段：</b>日期 / Day / 知识点 / L 级 / 验收动作 / 证据（文件或 commit）/ 下次复习。L 级定义写在文件开头，判定标准是「合上资料能不能做出来」。</p>
-   <p>填第一行示例：今天的知识点「Git 三态与首次 push」，验收动作「默写命令链 + push 成功」，证据 <code>git log --oneline</code>。</p>`,
+ { id:'g8', t:'写好 notes/ 四份记录模板（错题 / 掌握度 / 偏差 / 心得）', min:8,
+   why:'这四份文件不是形式主义：错题本防「同一个坑栽三次」，掌握度台账防「看懂了误当成会用了」，偏差记录让教程与实际不符的坑下次能直接查，每日心得是三个月后回看最能看出成长的东西。网页「掌握度台账」页可以直接填并导出。',
+   body:String.raw`<p>直接复制下面「文件模板」区里的四份内容，分别存进 <code>notes/</code>。写不出内容没关系，<b>今天只要把骨架和字段建起来</b>。</p>
+   <p><b>errors.md（我做错了什么）：</b>现象与报错原文 / 我当时以为 / 真正原因 / 正确结论 / 正确思路 / 最小复现命令 / 状态 / 重做记录。末尾附「量化专属高频坑位」清单（前视偏差、幸存者偏差、复权口径、shift 方向、涨跌停规则、随机种子）。</p>
+   <p><b>mastery.md（我学会了什么，每天填一行）：</b>日期 / Day / 知识点 / L级 / 验收证据 / 卡点·教程偏差 / 今日心得 / 下次复习 / 状态。证据必须可核对（文件路径、commit、题号），不能写「懂了」。</p>
+   <p><b>deviations.md（教程和实际不符记这里）：</b>教程原话 / 实际环境 / 我试过什么 / 替代工具与命令 / 验证结果 / 状态。例：教程用 akshare，你的环境字段变了，改用 Tushare 并验证拉取成功。</p>
+   <p><b>journal.md（每天 5 行心得）：</b>学会了什么 / 卡在哪花了多久 / 怎么解决 / 教程不符的地方 / 明天第一件事 / 状态评分。</p>
+   <p>填 mastery 第一行示例：知识点「Git 三态与首次 push」，证据 <code>git log --oneline</code>，L2，下次复习 +1 天。</p>`,
    cmds:[
      { os:'通用（复制模板内容保存后）', code:String.raw`# 用 VS Code 打开更方便，也可以命令行新建
 code notes/errors.md
 code notes/mastery.md
+code notes/deviations.md
+code notes/journal.md
 git add notes/
-git commit -m "docs: add error & mastery templates"` }
+git commit -m "docs: add error, mastery, deviation & journal templates"` }
    ],
-   out:'两个 .md 文件有完整表头和一条示例记录，且已被 commit。',
+   out:'四个 .md 文件有完整表头和一条示例记录，且已被 commit。',
    errs:[
      { q:'code 命令不存在', a:'VS Code 未加入 PATH；直接用记事本/编辑器打开这两个文件即可，命令只是 convenience。' },
      { q:'中文保存后乱码', a:'统一用 UTF-8 保存；PowerShell 用 Set-Content -Encoding utf8。' }
@@ -554,10 +628,10 @@ window.GUIDES = {
    sub:'Git / 虚拟环境 / Jupyter / 目录骨架 / 两个笔记模板',
    mins:'90–120 分钟（新手节奏，可拆两天）',
    intro:'这一天的原计划只有一行字，实际压了 5 件事。下面 12 步全部给了可直接复制的命令、预期输出、常见报错和对应学习材料，照着做即可。',
-   goal:['本地 Git 仓库 + 首次 commit','隔离的 .venv + 绑定 quant 内核的 Jupyter','7 个目录骨架 + notes/（各含 .gitkeep）','notes/errors.md 与 notes/mastery.md 两个模板','README / .gitignore / requirements.txt','远程仓库首次 push 成功'],
+   goal:['本地 Git 仓库 + 首次 commit','隔离的 .venv + 绑定 quant 内核的 Jupyter','7 个目录骨架 + notes/（各含 .gitkeep）','notes/ 四份记录模板（错题 / 掌握度 / 偏差 / 心得）','README / .gitignore / requirements.txt','远程仓库首次 push 成功'],
    steps: DAY1_STEPS,
    res: Object.keys(window.BEGINNER_RES),
-   final:['git log --oneline 至少 3 条 commit','git status -sb 干净','GitHub / Gitee 网页能看到全部文件','Jupyter 内核是 Python (quant)','notes/errors.md 与 notes/mastery.md 有表头和第一行','数学摸底自测做完并标了 L 级']
+   final:['git log --oneline 至少 3 条 commit','git status -sb 干净','GitHub / Gitee 网页能看到全部文件','Jupyter 内核是 Python (quant)','notes/ 四份模板有表头和第一行','数学摸底自测做完并标了 L 级']
  },
 
  1: { title:'Day 2 · AkShare 接入与第一次全市场下载', sub:'把「能拿到数据」变成可复现的脚本', mins:'60–80 分钟',

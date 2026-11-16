@@ -40,7 +40,6 @@ function confirmBox(title,text,cb){
 }
 
 /* ---------- state ---------- */
-var UIKEY = 'quant-study-ui-v1';
 function fresh(){
   return { v:1, settings:{ startDate:todayStr(), focus:0, seenStart:false }, days:{}, tests:{}, gates:{}, fixed:{}, ui:{} };
 }
@@ -67,30 +66,62 @@ function setFocus(i, silent){
   S.settings.focus=i; saveNow(); renderFocusUI();
   if(!silent) toast('当前学习日 → Day '+(i+1));
 }
-/* 视图状态（tab / 周筛选 / 搜索词 / 滚动位置）单独持久化，刷新后原地继续 */
-function loadUI(){ try{ return JSON.parse(localStorage.getItem(UIKEY)||'null')||{}; }catch(e){ return {}; } }
-var U = loadUI();
+/* 视图状态并入主 KEY：双 KEY 在多标签 / 双击文件 + 预览面板两种入口下会互相覆盖，是「跳回 Day1」的真凶 */
+var OLDUIKEY = 'quant-study-ui-v1';
+if(!S.ui) S.ui={};
+var U = S.ui;
+try{
+  var oldUI=JSON.parse(localStorage.getItem(OLDUIKEY)||'null');
+  if(oldUI && typeof oldUI==='object' && !Object.keys(S.ui).length) U=S.ui=oldUI;
+}catch(e){}
 var lastScroll = typeof U.scroll==='number' ? U.scroll : 0;
-var saveTm, uiTm, scrTm;
-function saveUI(){
-  var o={ tab:ui.tab, week:ui.week, filter:ui.filter, q:ui.q,
-          blocks:ui.blocks, gstepOpen:ui.gstepOpen, tmpl:ui.tmpl, wtOpen:ui.wtOpen,
-          scroll:lastScroll };
-  try{ localStorage.setItem(UIKEY,JSON.stringify(o)); }catch(e){}
+var saveTm, scrTm;
+function syncUI(){
+  S.ui={ tab:ui.tab, week:ui.week, filter:ui.filter, q:ui.q,
+         blocks:ui.blocks, gstepOpen:ui.gstepOpen, tmpl:ui.tmpl, wtOpen:ui.wtOpen,
+         fromFocus:ui.fromFocus, scroll:lastScroll };
 }
-function saveUILater(){ clearTimeout(uiTm); uiTm=setTimeout(saveUI,250); }
-function save(){ clearTimeout(saveTm); saveTm=setTimeout(function(){
-  try{ localStorage.setItem(KEY,JSON.stringify(S)); }catch(e){ toast('保存失败：浏览器存储不可用'); }
-  saveUILater();
-},160); }
-function saveNow(){ clearTimeout(saveTm); try{ localStorage.setItem(KEY,JSON.stringify(S)); }catch(e){} }
+function writeState(){
+  syncUI();
+  try{ localStorage.setItem(KEY,JSON.stringify(S)); }
+  catch(e){ toast('保存失败：浏览器存储不可用'); }
+}
+function save(){ clearTimeout(saveTm); saveTm=setTimeout(writeState,160); }
+function saveNow(){ clearTimeout(saveTm); writeState(); }
+function saveUI(){ clearTimeout(saveTm); writeState(); }
+function saveUILater(){ save(); }
 window.addEventListener('scroll',function(){ lastScroll=window.scrollY||0; clearTimeout(scrTm); scrTm=setTimeout(saveUI,500); },{passive:true});
+
+/* 跨标签同步：旧标签不跟着更新，就会用 Day1 的旧状态把新进度覆盖掉 */
+window.addEventListener('storage',function(e){
+  if(e.key!==KEY || !e.newValue) return;
+  try{
+    var o=JSON.parse(e.newValue);
+    if(!o || o.v!==1 || !o.days) return;
+    S=o;
+    if(!S.settings) S.settings={startDate:todayStr()};
+    if(typeof S.settings.focus!=='number' || S.settings.focus<0 || S.settings.focus>=TOTAL) S.settings.focus=inferFocus();
+    if(!S.ui) S.ui={};
+    var su=S.ui;
+    ui.tab=su.tab||'days'; ui.week=su.week!==undefined?su.week:weekOf(focusIdx());
+    ui.filter=su.filter||'all'; ui.q=su.q||'';
+    ui.blocks=su.blocks||{}; ui.gstepOpen=su.gstepOpen||{};
+    ui.tmpl=su.tmpl||ui.tmpl; ui.wtOpen=su.wtOpen||{};
+    ui.fromFocus=su.fromFocus!==false;
+    lastScroll=typeof su.scroll==='number'?su.scroll:0;
+    render(); toast('已同步其他标签页的进度');
+  }catch(err){}
+});
 function D(i){
   if(!S.days[i]) S.days[i]={done:false,doneAt:'',level:'',note:'',ans:{},verdict:{},showAns:{},opened:{}};
   var d=S.days[i];
   if(!d.ans)d.ans={}; if(!d.verdict)d.verdict={}; if(!d.showAns)d.showAns={};
   if(!d.opened)d.opened={}; if(!d.guide)d.guide={};
   if(d.note==null)d.note=''; if(d.level==null)d.level='';
+  if(d.evidence==null)d.evidence='';   // 验收证据：文件 / commit / 题号
+  if(d.deviation==null)d.deviation=''; // 教程与实际不符 + 替代方案
+  if(d.journal==null)d.journal='';     // 今日学习反馈心得
+  if(d.review==null)d.review='';       // 下次复习日
   return d;
 }
 function T(w){
@@ -133,8 +164,10 @@ var ui = {
   wtOpen: U.wtOpen || {},      // 周测展开
   gstepOpen: U.gstepOpen || {},// 步骤详情展开状态 key: i+':stepId'
   tmpl: U.tmpl || { errors:true, mastery:true, gitignore:false, readme:false, requirements:false },
+  fromFocus: U.fromFocus!==false,   // 默认从当前学习日开始显示，已学日不占首屏
   matShow:false,
-  ledgerAll:false
+  ledgerAll:false,
+  ledgerEdit:-1
 };
 if(['start','days','tests','gates','wrong','ledger','resources','method'].indexOf(ui.tab)<0) ui.tab='days';
 S.settings.seenStart = true;
@@ -489,6 +522,16 @@ function cardHtml(i){
         '</div></div>'+
         (i<TOTAL-1?'<div class="day-next"><button class="btn sm" data-act="next-from-card" data-i="'+i+'">→ 学完这天，去 Day '+(i+2)+'</button></div>':'')+
       '</div>'+
+      '<div class="day-log">'+
+        '<div class="log-cell"><span class="note-lbl">验收证据 · 可核对（文件 / commit / 题号）</span>'+
+        '<textarea data-act="evidence" data-i="'+i+'" placeholder="例：data/quality_report.md、git log --oneline、Q2 第 3 题" style="min-height:46px">'+esc(d.evidence)+'</textarea></div>'+
+        '<div class="log-cell"><span class="note-lbl">下次复习日</span>'+
+        '<input type="date" data-act="review" data-i="'+i+'" value="'+esc(d.review)+'"><div class="log-hint">建议 +1 / +7 / +30 天</div></div>'+
+        '<div class="log-cell wide"><span class="note-lbl">教程不符 / 替代方案 → notes/deviations.md</span>'+
+        '<textarea data-act="deviation" data-i="'+i+'" placeholder="例：教程用 akshare，本机字段变了，改用 Tushare pro_bar，已验证拉取 30 行" style="min-height:44px">'+esc(d.deviation)+'</textarea></div>'+
+        '<div class="log-cell wide"><span class="note-lbl">今日心得 → notes/journal.md（学会什么 / 卡在哪 / 明天第一件事）</span>'+
+        '<textarea data-act="journal" data-i="'+i+'" placeholder="一句话也行，当天写，别周末补记" style="min-height:44px">'+esc(d.journal)+'</textarea></div>'+
+      '</div>'+
     '</div>'+
   '</article>';
 }
@@ -497,6 +540,7 @@ function visibleDays(){
   for(var i=0;i<TOTAL;i++){
     var w=weekOf(i), dd=dayOf(i), d=D(i), p=window.PLAN[i];
     if(ui.week!=='all' && w!==ui.week && !ui.q) continue;   // 有搜索词时全库检索，不被当前周卡住
+    if(ui.fromFocus && !ui.q && i<focusIdx()) continue;     // 默认只看当前学习日及以后，已学日不占首屏
     if(ui.filter==='todo' && d.done) continue;
     if(ui.filter==='done' && !d.done) continue;
     if(ui.filter==='acc' && dd!==7) continue;
@@ -525,6 +569,13 @@ function restoreScroll(y){
 function renderDayList(){
   var y=lastScroll;
   var list=visibleDays();
+  /* 焦点跨周但周筛选还停在旧周 → 列表会空；自动跟到焦点所在周，避免看起来「什么都没有」 */
+  if(!list.length && ui.fromFocus && ui.week!=='all'){
+    ui.week=weekOf(focusIdx());
+    $$('#view .wk').forEach(function(b){ b.classList.toggle('on', b.dataset.w===String(ui.week)); });
+    $('#btnExpand').textContent='展开全部 105 天';
+    list=visibleDays();
+  }
   $('#dayList').innerHTML = list.length
     ? list.map(cardHtml).join('')
     : '<div class="empty">没有符合条件的任务。换个筛选条件，或点「展开全部 105 天」。</div>';
@@ -550,6 +601,7 @@ function viewDays(){
     '<div class="sec-desc">当前学习日：<b>Day '+(focusIdx()+1)+'</b> · 当前周：<b>W'+cur.w+' '+esc(cur.title)+'</b> · '+esc(cur.note)+
       '　每天固定结构：05 分钟闪卡 → 23 分钟主线 → 20 分钟动手 → 10 分钟真实 A 股数据验证 → 02 分钟验收三问。'+
       '<br><b>不会自动跳转</b>：完成当天只把顶部「当前学习日」推进到下一题，想继续学就点「→ 去学这一天」或卡片底部的「去 Day N」；刷新后仍停在你离开的位置。'+
+      '<br><b>首屏就是你今天要学的</b>：已完成的日子默认隐藏，列表从 Day '+(focusIdx()+1)+' 开始；要回看旧日用下面的「显示已学日」开关。'+
       '<br><b>搜索是全库的</b>：输入关键词会跨全部 15 周查找，不受当前周筛选限制。'+
       '<br><b>105 天都带「新手逐步拆解」</b>：点卡片里绿色横条展开，含可复制命令、预期输出、报错排查与配套视频；Day 1 完整版在「新手起步」。</div>'+
     '<div class="weeks">'+chips+'</div>'+
@@ -562,6 +614,7 @@ function viewDays(){
         '<option value="acc"'+(ui.filter==='acc'?' selected':'')+'>仅验收日</option>'+
         '<option value="wrong"'+(ui.filter==='wrong'?' selected':'')+'>有错题</option>'+
       '</select>'+
+      '<button class="btn sm'+(ui.fromFocus?' acc':'')+'" data-act="from-focus" title="切换是否隐藏已完成的日子">'+(ui.fromFocus?'✓ 从 Day '+(focusIdx()+1)+' 起 · 点我显示已学日':'显示已学日 · 点我只从当前起')+'</button>'+
       '<button class="btn sm" data-act="openall">展开本页全部习题</button>'+
       '<button class="btn sm" data-act="closeall">收起全部区块</button>'+
     '</div>'+
@@ -653,32 +706,104 @@ function viewWrong(){
 }
 
 /* ---------- mastery ledger ---------- */
+/* ---------- ledger: daily fillable table + markdown export ---------- */
+function mdCell(s){ return String(s==null?'':s).replace(/\|/g,'／').replace(/\r?\n/g,'；').trim(); }
+function downloadMd(name, text){
+  var blob=new Blob([text],{type:'text/markdown;charset=utf-8'});
+  var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name;
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },200);
+  toast('已导出 '+name+' · 放进项目 notes/ 目录即可');
+}
+function exportLedger(kind){
+  var lines=[], i, d, n=0;
+  if(kind==='mastery'){
+    lines=['# 掌握度台账 · Mastery Ledger','','> 网页导出 · '+todayStr(),'','一天一行，当天填；证据必须可核对。','',
+      '| 日期 | Day | 知识点 | L级 | 验收证据（文件 / commit / 题号） | 卡点 · 教程偏差 | 今日心得 | 下次复习 | 状态 |',
+      '|---|---|---|---|---|---|---|---|---|'];
+    for(i=0;i<TOTAL;i++){
+      d=D(i); if(!d.level && !d.done && !d.evidence && !d.journal) continue;
+      lines.push('| '+(d.doneAt||'—')+' | D'+(i+1)+'·W'+weekOf(i)+' | '+mdCell(plain(window.PLAN[i][0]).slice(0,40))+
+        ' | '+(d.level||'—')+' | '+mdCell(d.evidence)+' | '+mdCell(d.deviation)+' | '+mdCell(d.journal)+
+        ' | '+(d.review||'—')+' | '+(d.done?'已完成':'进行中')+' |');
+    }
+    downloadMd('mastery.md', lines.join('\n'));
+  } else if(kind==='deviations'){
+    lines=['# 教程偏差与替代方案 · Deviations','','> 网页导出 · '+todayStr(),'',
+      '教程与实际不符时记这里；errors.md 才记「我做错了什么」。','',
+      '| 编号 | 日期 | Day | 涉及教程 / 资料 | 替代方案 / 工具（原话） | 验证结果 | 状态 |','|---|---|---|---|---|---|---|'];
+    for(i=0;i<TOTAL;i++){
+      d=D(i); if(!d.deviation) continue; n++;
+      lines.push('| V'+pad(n)+' | '+(d.doneAt||'—')+' | D'+(i+1)+' | '+mdCell(plain(window.PLAN[i][0]).slice(0,36))+
+        ' | '+mdCell(d.deviation)+' | '+mdCell(d.evidence)+' | 已记录 |');
+    }
+    if(!n) lines.push('| — | — | — | 暂无记录 | — | — | — |');
+    downloadMd('deviations.md', lines.join('\n'));
+  } else {
+    lines=['# 每日学习反馈 · Journal','','> 网页导出 · '+todayStr(),''];
+    for(i=0;i<TOTAL;i++){
+      d=D(i); if(!d.journal) continue; n++;
+      lines.push('### '+(d.doneAt||'—')+' · Day '+(i+1)+' · W'+weekOf(i));
+      lines.push('- 学会什么 / 卡在哪 / 明天第一件事：'+mdCell(d.journal));
+      if(d.deviation) lines.push('- 教程不符 / 替代方案：'+mdCell(d.deviation));
+      if(d.evidence) lines.push('- 验收证据：'+mdCell(d.evidence));
+      lines.push('');
+    }
+    if(!n) lines.push('暂无记录。每天收工后在当天卡片底部填写。');
+    downloadMd('journal.md', lines.join('\n'));
+  }
+}
+function ledgerEditHtml(i){
+  var d=D(i);
+  return '<div class="ledger-editor">'+
+    '<div class="le-grid">'+
+      '<div><span class="note-lbl">L 级（合上资料能不能做出来）</span><div class="lv-row">'+window.LEVELS.map(function(l){
+        return '<button class="lv-btn'+(d.level===l.k?' on':'')+'" data-act="level" data-i="'+i+'" data-l="'+l.k+'" title="'+esc(l.how)+'">'+l.k+'</button>';
+      }).join('')+'</div></div>'+
+      '<div><span class="note-lbl">下次复习日</span><input type="date" data-act="review" data-i="'+i+'" value="'+esc(d.review)+'"></div>'+
+    '</div>'+
+    '<div class="le-field"><span class="note-lbl">验收证据（文件 / commit / 题号，必须可核对）</span><textarea data-act="evidence" data-i="'+i+'" placeholder="例：data/quality_report.md、git log --oneline、Q2 第 3 题">'+esc(d.evidence)+'</textarea></div>'+
+    '<div class="le-field"><span class="note-lbl">教程不符 / 替代方案 → notes/deviations.md</span><textarea data-act="deviation" data-i="'+i+'" placeholder="教程原话 + 你的环境 + 换用的工具 + 验证结果">'+esc(d.deviation)+'</textarea></div>'+
+    '<div class="le-field"><span class="note-lbl">今日心得 → notes/journal.md</span><textarea data-act="journal" data-i="'+i+'" placeholder="学会什么 / 卡在哪 / 明天第一件事，一句话也行">'+esc(d.journal)+'</textarea></div>'+
+    '<div class="le-foot"><span>自动保存到本机，点上方「导出」写进项目 notes/</span>'+
+      '<button class="btn sm" data-act="jump" data-i="'+i+'">打开这一天的完整拆解 →</button>'+
+      '<button class="btn sm" data-act="ledger-edit" data-i="'+i+'">收起</button></div>'+
+  '</div>';
+}
 function viewLedger(){
   var cnt={L0:0,L1:0,L2:0,L3:0,'':0};
   for(var k in S.days){ var l=S.days[k].level; cnt[l]=(cnt[l]||0)+1; }
   var rows=[];
   for(var i=0;i<TOTAL;i++){
     var d=D(i);
-    if(!ui.ledgerAll && !d.level && !d.done) continue;
-    rows.push('<tr><td class="mono">Day '+pad(i+1)+'</td><td class="mono">W'+weekOf(i)+' D'+dayOf(i)+'</td>'+
-      '<td>'+esc(plain(window.PLAN[i][0]).slice(0,48))+'…</td>'+
+    if(!ui.ledgerAll && !d.level && !d.done && !d.evidence && !d.journal) continue;
+    rows.push('<tr><td class="mono">Day '+(i+1)+'</td><td class="mono">W'+weekOf(i)+'·D'+dayOf(i)+'</td>'+
+      '<td class="td-topic">'+esc(plain(window.PLAN[i][0]).slice(0,40))+'</td>'+
       '<td class="mono">'+(d.level?'<b>'+d.level+'</b>':'—')+'</td>'+
       '<td>'+(d.done?'<span style="color:var(--primary)">✓ 已完成</span>':'—')+'</td>'+
-      '<td class="mono">'+esc(d.doneAt||'—')+'</td>'+
-      '<td><button class="mini" data-act="jump" data-i="'+i+'">打开</button></td></tr>');
+      '<td class="td-short">'+esc(mdCell(d.evidence))+'</td>'+
+      '<td class="td-short">'+esc(mdCell(d.deviation))+'</td>'+
+      '<td class="td-short">'+esc(mdCell(d.journal))+'</td>'+
+      '<td class="mono td-short">'+esc(d.review||'—')+'</td>'+
+      '<td><button class="mini" data-act="ledger-edit" data-i="'+i+'">'+(ui.ledgerEdit===i?'收起':'填写')+'</button></td></tr>');
+    if(ui.ledgerEdit===i) rows.push('<tr class="ledger-edit-row"><td colspan="10">'+ledgerEditHtml(i)+'</td></tr>');
   }
   return '<section class="view">'+
-    '<div class="sec-title">掌握度台账</div>'+
-    '<div class="sec-desc">知识点 | L 级 | 验收日期。这是唯一需要长期维护的表：<b>期末要求所有知识点 ≥ L2、阶段出口知识点 = L3</b>。</div>'+
+    '<div class="sec-title">掌握度台账 · 每天收工填一行</div>'+
+    '<div class="sec-desc">整套计划唯一需要长期维护的表。<b>当天填、不补记</b>；证据必须可核对（文件路径 / commit / 题号），不许写「懂了」。填完点「导出」把 markdown 存进项目的 <code>notes/</code> 目录。期末要求全部 ≥ L2，阶段出口知识点 = L3。</div>'+
     '<div class="grid3" style="margin-bottom:16px">'+window.LEVELS.map(function(l){
       return '<div class="card"><div class="lv-tag" style="font-family:var(--mono);font-size:12px;color:var(--primary)">'+l.k+' '+l.n+'</div>'+
         '<div style="font-family:var(--mono);font-size:22px;font-weight:600;margin:6px 0">'+(cnt[l.k]||0)+'</div>'+
         '<div style="font-size:12px;color:var(--soft)">'+esc(l.how)+'</div></div>';
     }).join('')+'</div>'+
-    '<div class="filters"><button class="btn sm" data-act="ledger-all">'+(ui.ledgerAll?'只看已记录':'显示全部 105 天')+'</button>'+
+    '<div class="tool-row">'+
+      '<button class="btn sm pri" data-act="export-ledger" data-k="mastery">导出 mastery.md</button>'+
+      '<button class="btn sm" data-act="export-ledger" data-k="deviations">导出 deviations.md</button>'+
+      '<button class="btn sm" data-act="export-ledger" data-k="journal">导出 journal.md</button>'+
+      '<button class="btn sm" data-act="ledger-all">'+(ui.ledgerAll?'只看已记录':'显示全部 105 天')+'</button>'+
       '<span style="font-size:12.5px;color:var(--soft)">尚未评级 '+(cnt['']||0)+' 天 · 已评级 '+(TOTAL-(cnt['']||0))+' 天</span></div>'+
-    '<div class="tbl-wrap"><table><thead><tr><th>日</th><th>周·日</th><th>知识点</th><th>L 级</th><th>完成</th><th>验收日期</th><th></th></tr></thead>'+
-      '<tbody>'+(rows.length?rows.join(''):'<tr><td colspan="7" style="text-align:center;color:var(--soft);padding:32px">还没有记录。去逐日计划里标 L 级或勾选完成。</td></tr>')+'</tbody></table></div>'+
+    '<div class="tbl-wrap"><table><thead><tr><th>Day</th><th>周·日</th><th>知识点</th><th>L级</th><th>完成</th><th>验收证据</th><th>教程偏差</th><th>今日心得</th><th>下次复习</th><th></th></tr></thead>'+
+      '<tbody>'+(rows.length?rows.join(''):'<tr><td colspan="10" style="text-align:center;color:var(--soft);padding:32px">还没有记录。点某一天「填写」，或在当天卡片底部直接登记。</td></tr>')+'</tbody></table></div>'+
   '</section>';
 }
 
@@ -791,6 +916,10 @@ document.addEventListener('click',function(e){
     renderDayList(); saveUILater(); return;
   }
   if(a==='filter') return;
+  if(a==='from-focus'){
+    ui.fromFocus=!ui.fromFocus; save(); render();
+    toast(ui.fromFocus?'首屏从当前学习日开始，已学日已隐藏':'已显示含已学日的全部任务'); return;
+  }
 
   if(a==='copy'){
     var src=document.getElementById(el.dataset.target);
@@ -887,6 +1016,8 @@ document.addEventListener('click',function(e){
   if(a==='gate') return;
   if(a==='fixed'){ S.fixed[el.dataset.key]=true; save(); render(); toast('已移出错题本'); return; }
   if(a==='ledger-all'){ ui.ledgerAll=!ui.ledgerAll; render(); return; }
+  if(a==='ledger-edit'){ ui.ledgerEdit = ui.ledgerEdit===i ? -1 : i; render(); return; }
+  if(a==='export-ledger'){ exportLedger(el.dataset.k); return; }
 });
 
 /* textarea / select / checkbox changes */
@@ -896,11 +1027,15 @@ document.addEventListener('input',function(e){
   if(a==='ans'){ D(parseInt(el.dataset.i,10)).ans[el.dataset.q]=el.value; save();
     var h=el.parentNode.querySelector('.save-hint'); if(h){ h.textContent='已保存 ✓'; clearTimeout(h._t); h._t=setTimeout(function(){h.textContent='作答自动保存';},1200); } return; }
   if(a==='note'){ D(parseInt(el.dataset.i,10)).note=el.value; save(); return; }
+  if(a==='evidence'){ D(parseInt(el.dataset.i,10)).evidence=el.value; save(); return; }
+  if(a==='deviation'){ D(parseInt(el.dataset.i,10)).deviation=el.value; save(); return; }
+  if(a==='journal'){ D(parseInt(el.dataset.i,10)).journal=el.value; save(); return; }
   if(a==='tans'){ T(parseInt(el.dataset.w,10)).ans[parseInt(el.dataset.j,10)]=el.value; save(); return; }
 });
 document.addEventListener('change',function(e){
   var el=e.target, a=el.dataset.act;
   if(a==='filter'){ ui.filter=el.value; renderDayList(); return; }
+  if(a==='review'){ D(parseInt(el.dataset.i,10)).review=el.value; save(); toast('复习日已登记'); return; }
   if(a==='gstep-check'){
     if(el.tagName!=='INPUT') return;
     var gi=parseInt(el.dataset.i,10), gd=D(gi);
