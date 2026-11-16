@@ -40,3 +40,10 @@ Day2
 东方财富和新浪的数据源接口被封了，换接口Baostock。
 
 Baostock 是专业的量化数据接口，极其稳定，绝对不会被限流。
+
+任务4截图中用的是 symbol，而你用的是 code
+仔细看截图的代码：
+df.duplicated(subset=["symbol","date"]).sum()
+教程里用的是 symbol。但在你的 Baostock 数据里，股票代码的列名是 code。你之前在代码里写的是 subset=["code", "date"]，这绝对是正确的！ 因为 Baostock 的数据结构就是 code。不要去强行改成 symbol，否则会报错。
+
+| 2026-11-16 | 4 | 数据质量检查与去重 | L2 | 编写并跑通 quality_report 函数 | 跑通报告且输出0重复 | 周末复习 |
