@@ -40,8 +40,9 @@ function confirmBox(title,text,cb){
 }
 
 /* ---------- state ---------- */
+var UIKEY = 'quant-study-ui-v1';
 function fresh(){
-  return { v:1, settings:{ startDate:todayStr() }, days:{}, tests:{}, gates:{}, fixed:{} };
+  return { v:1, settings:{ startDate:todayStr(), focus:0, seenStart:false }, days:{}, tests:{}, gates:{}, fixed:{}, ui:{} };
 }
 var IS_NEW = true;
 try { IS_NEW = !localStorage.getItem(KEY); } catch(e){ IS_NEW = false; }
@@ -51,11 +52,39 @@ if (!S || S.v!==1 || !S.days) S = fresh();
 if (!S.settings) S.settings={startDate:todayStr()};
 if (!S.settings.startDate) S.settings.startDate=todayStr();
 if (!S.tests) S.tests={}; if(!S.gates) S.gates={}; if(!S.fixed) S.fixed={};
-var saveTm;
+if (S.settings.seenStart==null) S.settings.seenStart = !IS_NEW;
+/* 当前学习日：只由「你学到哪」决定，跟日历解耦。老用户按已完成天数推断，完成 Day1 → 自动指向 Day2 */
+function inferFocus(){
+  var last=-1;
+  for(var k in S.days){ if(S.days[k] && S.days[k].done) last=Math.max(last,parseInt(k,10)||0); }
+  return Math.min(TOTAL-1, Math.max(0,last+1));
+}
+if (typeof S.settings.focus!=='number' || S.settings.focus<0 || S.settings.focus>=TOTAL)
+  S.settings.focus = inferFocus();
+function focusIdx(){ return S.settings.focus; }
+function setFocus(i, silent){
+  if(i<0 || i>=TOTAL) return;
+  S.settings.focus=i; saveNow(); renderFocusUI();
+  if(!silent) toast('当前学习日 → Day '+(i+1));
+}
+/* 视图状态（tab / 周筛选 / 搜索词 / 滚动位置）单独持久化，刷新后原地继续 */
+function loadUI(){ try{ return JSON.parse(localStorage.getItem(UIKEY)||'null')||{}; }catch(e){ return {}; } }
+var U = loadUI();
+var lastScroll = typeof U.scroll==='number' ? U.scroll : 0;
+var saveTm, uiTm, scrTm;
+function saveUI(){
+  var o={ tab:ui.tab, week:ui.week, filter:ui.filter, q:ui.q,
+          blocks:ui.blocks, gstepOpen:ui.gstepOpen, tmpl:ui.tmpl, wtOpen:ui.wtOpen,
+          scroll:lastScroll };
+  try{ localStorage.setItem(UIKEY,JSON.stringify(o)); }catch(e){}
+}
+function saveUILater(){ clearTimeout(uiTm); uiTm=setTimeout(saveUI,250); }
 function save(){ clearTimeout(saveTm); saveTm=setTimeout(function(){
   try{ localStorage.setItem(KEY,JSON.stringify(S)); }catch(e){ toast('保存失败：浏览器存储不可用'); }
+  saveUILater();
 },160); }
 function saveNow(){ clearTimeout(saveTm); try{ localStorage.setItem(KEY,JSON.stringify(S)); }catch(e){} }
+window.addEventListener('scroll',function(){ lastScroll=window.scrollY||0; clearTimeout(scrTm); scrTm=setTimeout(saveUI,500); },{passive:true});
 function D(i){
   if(!S.days[i]) S.days[i]={done:false,doneAt:'',level:'',note:'',ans:{},verdict:{},showAns:{},opened:{}};
   var d=S.days[i];
@@ -96,17 +125,20 @@ function quizCount(i){ var d=D(i),n=0; ['q1','q2','q3'].forEach(function(q){ if(
 
 /* ---------- ui state ---------- */
 var ui = {
-  tab: IS_NEW ? 'start' : 'days',   // 首次打开直接进「新手起步」
-  week: weekOf(todayIdx()),
-  filter:'all',
-  q:'',
-  blocks:{},      // key: i+':links' / i+':quiz' / i+':guide' → true = 展开
-  wtOpen:{},      // 周测展开
-  gstepOpen:{},   // 步骤详情展开状态 key: i+':stepId'
-  tmpl:{ errors:true, mastery:true, gitignore:false, readme:false, requirements:false },
+  tab: U.tab || (!S.settings.seenStart ? 'start' : 'days'),
+  week: U.week !== undefined ? U.week : weekOf(focusIdx()),
+  filter: U.filter || 'all',
+  q: U.q || '',
+  blocks: U.blocks || {},      // key: i+':links' / i+':quiz' / i+':guide' → true = 展开
+  wtOpen: U.wtOpen || {},      // 周测展开
+  gstepOpen: U.gstepOpen || {},// 步骤详情展开状态 key: i+':stepId'
+  tmpl: U.tmpl || { errors:true, mastery:true, gitignore:false, readme:false, requirements:false },
   matShow:false,
   ledgerAll:false
 };
+if(['start','days','tests','gates','wrong','ledger','resources','method'].indexOf(ui.tab)<0) ui.tab='days';
+S.settings.seenStart = true;
+saveNow();  // 首次打开即落盘：避免下次仍被判为「新用户」而跳回新手页 / Day 1
 
 var TABS = [
   {id:'start',n:'新手起步',badge:'Day 1'},{id:'days',n:'逐日计划'},
@@ -115,12 +147,33 @@ var TABS = [
 ];
 
 /* ---------- dashboard / tabs ---------- */
+function renderFocusUI(){
+  var f=focusIdx(), cal=todayIdx();
+  if($('#stToday')) $('#stToday').textContent='Day '+(f+1);
+  var sel=$('#focusSelect');
+  if(sel){
+    if(sel.options.length!==TOTAL){
+      var html='';
+      for(var i=0;i<TOTAL;i++){
+        var ttl=plain(window.PLAN[i][0]).slice(0,24);
+        html+='<option value="'+i+'">Day '+(i+1)+' · '+esc(ttl)+'…</option>';
+      }
+      sel.innerHTML=html;
+    }
+    sel.value=String(f);
+  }
+  var pv=$('#btnPrevDay'), nx=$('#btnNextDay');
+  if(pv) pv.disabled=f===0;
+  if(nx) nx.disabled=f===TOTAL-1;
+  var bt=$('#btnCalToday');
+  if(bt) bt.textContent='日历今天 · Day '+(cal+1);
+}
 function renderDash(){
   var n=doneCount(), pct=Math.round(n/TOTAL*100);
   $('#ringArc').setAttribute('stroke-dashoffset', String(RING*(1-n/TOTAL)));
   $('#ringPct').textContent=pct+'%';
   $('#stDone').textContent=n;
-  $('#stToday').textContent='Day '+(todayIdx()+1);
+  renderFocusUI();
   $('#stStreak').textContent=streak();
   var wc=wrongKeys().length;
   $('#stWrong').textContent=wc;
@@ -300,10 +353,10 @@ function viewStart(){
       }).join('')+'</div>'+
     '</div>'+
     '<div class="sec-nav">'+
-      '<a href="#sg0">① 命令行扫盲</a><a href="#sg1">② '+g.steps.length+' 步实操</a>'+
-      '<a href="#sg2">③ 文件模板</a><a href="#sg3">④ 数学摸底</a>'+
-      '<a href="#sg4">⑤ 今日验收</a><a href="#sg5">⑥ 报错速查</a>'+
-      '<a href="#sg6">⑦ 全部学习材料</a><a href="#sg7">⑧ Day 2–105 拆解索引</a>'+
+      '<a href="#" data-act="anchor" data-id="sg0">① 命令行扫盲</a><a href="#" data-act="anchor" data-id="sg1">② '+g.steps.length+' 步实操</a>'+
+      '<a href="#" data-act="anchor" data-id="sg2">③ 文件模板</a><a href="#" data-act="anchor" data-id="sg3">④ 数学摸底</a>'+
+      '<a href="#" data-act="anchor" data-id="sg4">⑤ 今日验收</a><a href="#" data-act="anchor" data-id="sg5">⑥ 报错速查</a>'+
+      '<a href="#" data-act="anchor" data-id="sg6">⑦ 全部学习材料</a><a href="#" data-act="anchor" data-id="sg7">⑧ Day 2–105 拆解索引</a>'+
     '</div>'+
 
     '<div class="sec-title" id="sg0">① 零基础先读：命令行到底怎么用</div>'+
@@ -383,14 +436,14 @@ function fillBlock(i,type){
 }
 function cardHtml(i){
   var p=window.PLAN[i], w=weekOf(i), dd=dayOf(i), ph=phaseOf(w), d=D(i);
-  var isAcc=dd===7, isToday=i===todayIdx();
+  var isAcc=dd===7, isFocus=i===focusIdx(), isCal=i===todayIdx();
   var links=window.buildDayLinks(w,dd,p);
   var openL=ui.blocks[i+':links']!==false;
-  var openQ=ui.blocks[i+':quiz']===true || (isToday && ui.blocks[i+':quiz']===undefined);
+  var openQ=ui.blocks[i+':quiz']===true || (isFocus && ui.blocks[i+':quiz']===undefined);
   var qn=quizCount(i);
   var g=window.GUIDES[i], gp=g?guideProgress(i):null;
-  var openG = !!g && (ui.blocks[i+':guide']===true || (i===0 && ui.blocks[i+':guide']===undefined));
-  var cls='day'+(isToday?' today':'')+(d.done?' done':'')+(isAcc?' acc-day':'');
+  var openG = !!g && (ui.blocks[i+':guide']===true || ((isFocus||i===0) && ui.blocks[i+':guide']===undefined));
+  var cls='day'+(isFocus?' today':'')+(d.done?' done':'')+(isAcc?' acc-day':'');
   return '<article class="'+cls+'" id="day-'+i+'">'+
     '<div class="day-head">'+
       '<span class="day-no">D'+dd+' · '+pad(i+1)+'</span>'+
@@ -398,7 +451,8 @@ function cardHtml(i){
       '<span class="tag phase" style="background:'+ph.color+'">阶段 '+ph.id+'</span>'+
       '<span class="tag">W'+w+' · '+esc(window.WEEKS[w-1].title)+'</span>'+
       (isAcc?'<span class="tag acc-tag">验收日</span>':'')+
-      (isToday?'<span class="tag today-tag">今天</span>':'')+
+      (isFocus?'<span class="tag today-tag">当前学习日</span>':'')+
+      (isCal&&!isFocus?'<span class="tag" title="按计划开始日推算，仅供参考">日历今天</span>':'')+
       '<span class="day-title">'+esc(plain(p[0]).slice(0,46))+(plain(p[0]).length>46?'…':'')+'</span>'+
       '<label class="done-box'+(d.done?' is-done':'')+'"><input type="checkbox" data-act="done" data-i="'+i+'"'+(d.done?' checked':'')+'>'+(d.done?'已完成':'标记完成')+'</label>'+
     '</div>'+
@@ -433,6 +487,7 @@ function cardHtml(i){
         '<div><span class="note-lbl">掌握度自评（写进台账）</span><div class="lv-row">'+
           window.LEVELS.map(function(l){ return '<button class="lv-btn'+(d.level===l.k?' on':'')+'" data-act="level" data-i="'+i+'" data-l="'+l.k+'" title="'+esc(l.how)+'">'+l.k+'</button>'; }).join('')+
         '</div></div>'+
+        (i<TOTAL-1?'<div class="day-next"><button class="btn sm" data-act="next-from-card" data-i="'+i+'">→ 学完这天，去 Day '+(i+2)+'</button></div>':'')+
       '</div>'+
     '</div>'+
   '</article>';
@@ -441,7 +496,7 @@ function visibleDays(){
   var arr=[];
   for(var i=0;i<TOTAL;i++){
     var w=weekOf(i), dd=dayOf(i), d=D(i), p=window.PLAN[i];
-    if(ui.week!=='all' && w!==ui.week) continue;
+    if(ui.week!=='all' && w!==ui.week && !ui.q) continue;   // 有搜索词时全库检索，不被当前周卡住
     if(ui.filter==='todo' && d.done) continue;
     if(ui.filter==='done' && !d.done) continue;
     if(ui.filter==='acc' && dd!==7) continue;
@@ -461,17 +516,25 @@ function visibleDays(){
   }
   return arr;
 }
+/* DOM 重建会把滚动条推回顶部，看起来就像「页面自己跳回 Day 1」；统一在这里原样恢复 */
+function restoreScroll(y){
+  if(!y || y<=0){ if(window.scrollY>0) window.scrollTo({top:0,behavior:'auto'}); return; }
+  window.scrollTo({top:y,behavior:'auto'});
+  setTimeout(function(){ if(Math.abs(window.scrollY-y)>2) window.scrollTo({top:y,behavior:'auto'}); },40);
+}
 function renderDayList(){
+  var y=lastScroll;
   var list=visibleDays();
   $('#dayList').innerHTML = list.length
     ? list.map(cardHtml).join('')
     : '<div class="empty">没有符合条件的任务。换个筛选条件，或点「展开全部 105 天」。</div>';
   list.forEach(function(i){
     if(ui.blocks[i+':links']!==false) fillBlock(i,'links');
-    if(window.GUIDES[i] && (ui.blocks[i+':guide']===true || (i===0 && ui.blocks[i+':guide']===undefined))) fillBlock(i,'guide');
-    var isToday=i===todayIdx();
-    if(ui.blocks[i+':quiz']===true || (isToday && ui.blocks[i+':quiz']===undefined)) fillBlock(i,'quiz');
+    if(window.GUIDES[i] && (ui.blocks[i+':guide']===true || ((i===focusIdx()||i===0) && ui.blocks[i+':guide']===undefined))) fillBlock(i,'guide');
+    var isFocus=i===focusIdx();
+    if(ui.blocks[i+':quiz']===true || (isFocus && ui.blocks[i+':quiz']===undefined)) fillBlock(i,'quiz');
   });
+  restoreScroll(y);
 }
 function viewDays(){
   var chips='<button class="wk'+(ui.week==='all'?' on':'')+'" data-act="week" data-w="all">全部 105 天</button>'+
@@ -481,12 +544,14 @@ function viewDays(){
       return '<button class="wk'+(ui.week===w.w?' on':'')+'" data-act="week" data-w="'+w.w+'" title="'+esc(w.sub)+'">'+
         '<span class="dot" style="background:'+ph.color+'"></span>W'+w.w+' '+esc(w.title)+' <span style="opacity:.7;font-family:var(--mono)">'+n+'/7</span></button>';
     }).join('');
-  var cur=window.WEEKS[weekOf(todayIdx())-1];
+  var cur=window.WEEKS[weekOf(focusIdx())-1];
   return '<section class="view">'+
     '<div class="sec-title">105 天逐日计划</div>'+
-    '<div class="sec-desc">当前周：<b>W'+cur.w+' '+esc(cur.title)+'</b> · '+esc(cur.note)+
+    '<div class="sec-desc">当前学习日：<b>Day '+(focusIdx()+1)+'</b> · 当前周：<b>W'+cur.w+' '+esc(cur.title)+'</b> · '+esc(cur.note)+
       '　每天固定结构：05 分钟闪卡 → 23 分钟主线 → 20 分钟动手 → 10 分钟真实 A 股数据验证 → 02 分钟验收三问。'+
-      '<br><b>Week 1 的 7 天都带「新手逐步拆解」</b>：点卡片里绿色横条展开，含可复制命令、预期输出、报错排查与配套视频；也可以去「新手起步」看 Day 1 完整版。</div>'+
+      '<br><b>不会自动跳转</b>：完成当天只把顶部「当前学习日」推进到下一题，想继续学就点「→ 去学这一天」或卡片底部的「去 Day N」；刷新后仍停在你离开的位置。'+
+      '<br><b>搜索是全库的</b>：输入关键词会跨全部 15 周查找，不受当前周筛选限制。'+
+      '<br><b>105 天都带「新手逐步拆解」</b>：点卡片里绿色横条展开，含可复制命令、预期输出、报错排查与配套视频；Day 1 完整版在「新手起步」。</div>'+
     '<div class="weeks">'+chips+'</div>'+
     '<div class="filters">'+
       '<div class="search"><input id="searchBox" data-act="search" placeholder="搜索主题、函数、公式、周次… 如 OLS、PIT、Itô、SVD" value="'+esc(ui.q)+'"></div>'+
@@ -662,6 +727,7 @@ function viewMethod(){
 
 /* ---------- render ---------- */
 function render(){
+  var y=lastScroll;
   renderDash(); renderTabs();
   var html;
   switch(ui.tab){
@@ -679,6 +745,8 @@ function render(){
   if(ui.tab==='days') renderDayList();
   $('#btnExpand').textContent = ui.week==='all' ? '只看当前周' : '展开全部 105 天';
   $('#startDate').value=S.settings.startDate;
+  restoreScroll(y);
+  saveUILater();
 }
 
 /* ---------- local updaters (avoid full re-render) ---------- */
@@ -692,12 +760,36 @@ function updateCardChrome(i){
 }
 
 /* ---------- events ---------- */
+/* 统一入口：切换当天并展开内容。任何手动跳转都会同步「当前学习日」，所以刷新后仍停在这一天 */
+function goToDay(i, quiet){
+  if(i<0 || i>=TOTAL) return;
+  setFocus(i, !!quiet);
+  ui.tab='days'; ui.week=weekOf(i); ui.filter='all'; ui.q='';
+  ui.blocks[i+':quiz']=true; ui.blocks[i+':links']=true;
+  if(window.GUIDES[i]) ui.blocks[i+':guide']=true;
+  lastScroll=0;
+  render();
+  setTimeout(function(){
+    var t=$('#day-'+i);
+    if(t){
+      t.scrollIntoView({behavior:'smooth',block:'start'});
+      setTimeout(function(){ lastScroll=Math.max(0,t.getBoundingClientRect().top+window.scrollY-70); saveUI(); },750);
+    }
+  },60);
+}
 document.addEventListener('click',function(e){
   var el=e.target.closest('[data-act]'); if(!el) return;
   var a=el.dataset.act, i=parseInt(el.dataset.i,10), w=parseInt(el.dataset.w,10);
 
-  if(a==='tab'){ ui.tab=el.dataset.t; render(); window.scrollTo({top:0,behavior:'smooth'}); return; }
-  if(a==='week'){ ui.week=el.dataset.w==='all'?'all':parseInt(el.dataset.w,10); render(); return; }
+  /* 章节导航只滚动，不写 URL hash —— 否则刷新时浏览器会自动滚回锚点 */
+  if(a==='anchor'){ e.preventDefault(); var tgt=$('#'+el.dataset.id); if(tgt) tgt.scrollIntoView({behavior:'smooth',block:'start'}); return; }
+  if(a==='tab'){ ui.tab=el.dataset.t; lastScroll=0; render(); return; }
+  if(a==='week'){
+    ui.week=el.dataset.w==='all'?'all':parseInt(el.dataset.w,10);
+    $$('#view .wk').forEach(function(b){ b.classList.toggle('on', b.dataset.w===String(ui.week)); });
+    $('#btnExpand').textContent = ui.week==='all' ? '只看当前周' : '展开全部 105 天';
+    renderDayList(); saveUILater(); return;
+  }
   if(a==='filter') return;
 
   if(a==='copy'){
@@ -774,14 +866,8 @@ document.addEventListener('click',function(e){
     visibleDays().forEach(function(k){ ui.blocks[k+':links']=false; ui.blocks[k+':quiz']=false; ui.blocks[k+':guide']=false; });
     renderDayList(); return;
   }
-  if(a==='jump'){
-    ui.tab='days'; ui.week=weekOf(i); ui.filter='all'; ui.q='';
-    ui.blocks[i+':quiz']=true; ui.blocks[i+':links']=true;
-    if(window.GUIDES[i]) ui.blocks[i+':guide']=true;
-    render();
-    setTimeout(function(){ var t=$('#day-'+i); if(t) t.scrollIntoView({behavior:'smooth',block:'start'}); },60);
-    return;
-  }
+  if(a==='jump'){ goToDay(i); return; }
+  if(a==='next-from-card'){ goToDay(i+1); return; }
   if(a==='wt-toggle'){ ui.wtOpen[w]=!ui.wtOpen[w]; render(); return; }
   if(a==='wt-show'){
     var t=T(w), j=parseInt(el.dataset.j,10), ab=$('#wtAns-'+w+'-'+j);
@@ -826,7 +912,15 @@ document.addEventListener('change',function(e){
     var i=parseInt(el.dataset.i,10), d=D(i);
     d.done=el.checked; d.doneAt=el.checked?todayStr():''; save();
     updateCardChrome(i); refreshMeta();
-    if(el.checked) toast('Day '+(i+1)+' 完成 ✓ 累计 '+doneCount()+'/105'); return;
+    /* 完成当天后只推进焦点，绝不自动切 tab / 自动滚动 —— 想继续学下一天由你点按钮决定 */
+    if(el.checked && focusIdx()<=i && i<TOTAL-1){
+      S.settings.focus=i+1; saveNow(); renderFocusUI();
+      if(ui.tab==='days') renderDayList();
+      toast('Day '+(i+1)+' 完成 ✓ 当前学习日已推进到 Day '+(i+2)+'，点顶部「去学这一天」继续');
+    } else if(el.checked){
+      toast('Day '+(i+1)+' 完成 ✓ 累计 '+doneCount()+'/105');
+    }
+    return;
   }
   if(a==='gate'){
     var g=el.dataset.g, k=parseInt(el.dataset.k,10);
@@ -841,15 +935,17 @@ document.addEventListener('change',function(e){
 });
 
 /* toolbar */
-$('#btnToday').onclick=function(){
-  ui.tab='days'; ui.week=weekOf(todayIdx()); ui.filter='all'; ui.q='';
-  var t=todayIdx(); ui.blocks[t+':quiz']=true; ui.blocks[t+':links']=true;
-  if(window.GUIDES[t]) ui.blocks[t+':guide']=true;
-  render();
-  setTimeout(function(){ var e=$('#day-'+t); if(e) e.scrollIntoView({behavior:'smooth',block:'start'}); },60);
+$('#btnPrevDay').onclick=function(){ goToDay(focusIdx()-1, true); };
+$('#btnNextDay').onclick=function(){ goToDay(focusIdx()+1, true); };
+$('#focusSelect').onchange=function(){ goToDay(parseInt(this.value,10), true); };
+$('#btnGoFocus').onclick=function(){ goToDay(focusIdx(), true); };
+$('#btnCalToday').onclick=function(){ toast('日历今天 = Day '+(todayIdx()+1)+'（按开始日期推算，不影响当前学习日）'); };
+$('#btnExpand').onclick=function(){ ui.week = ui.week==='all' ? weekOf(focusIdx()) : 'all'; ui.tab='days'; render(); };
+$('#startDate').onchange=function(){
+  S.settings.startDate=this.value||todayStr(); saveNow(); renderFocusUI();
+  if(ui.tab==='days') renderDayList();
+  toast('开始日期已更新，日历今天 = Day '+(todayIdx()+1)+'（当前学习日不变）');
 };
-$('#btnExpand').onclick=function(){ ui.week = ui.week==='all' ? weekOf(todayIdx()) : 'all'; ui.tab='days'; render(); };
-$('#startDate').onchange=function(){ S.settings.startDate=this.value||todayStr(); saveNow(); render(); toast('开始日期已更新，今天是 Day '+(todayIdx()+1)); };
 $('#btnExport').onclick=function(){
   saveNow();
   var blob=new Blob([JSON.stringify(S,null,2)],{type:'application/json'});
@@ -869,7 +965,7 @@ $('#fileInput').onchange=function(){
       confirmBox('导入备份','将覆盖当前所有进度与作答，确定继续？',function(){
         S=o; if(!S.settings)S.settings={startDate:todayStr()};
         if(!S.tests)S.tests={}; if(!S.gates)S.gates={}; if(!S.fixed)S.fixed={};
-        saveNow(); ui.week=weekOf(todayIdx()); render(); toast('备份已导入');
+        saveNow(); ui.week=weekOf(focusIdx()); lastScroll=0; render(); toast('备份已导入');
       });
     }catch(err){ toast('导入失败：'+err.message); }
   };
@@ -877,11 +973,20 @@ $('#fileInput').onchange=function(){
 };
 $('#btnReset').onclick=function(){
   confirmBox('清空全部进度','将删除所有完成记录、作答、笔记、判分与台账，且不可撤销。建议先导出备份。',function(){
-    S=fresh(); saveNow(); ui.blocks={}; ui.wtOpen={}; ui.week=1; render(); toast('进度已清空');
+    S=fresh(); S.settings.seenStart=true; saveNow();
+    ui.blocks={}; ui.wtOpen={}; ui.gstepOpen={}; ui.week=1; ui.tab='days'; lastScroll=0;
+    render(); toast('进度已清空');
   });
 };
 $('#modalBg').onclick=function(e){ if(e.target===this) this.classList.remove('on'); };
 document.addEventListener('keydown',function(e){ if(e.key==='Escape') $('#modalBg').classList.remove('on'); });
 
+/* 章节锚点不再写 hash；旧的 #sgX 若留在地址栏，刷新时浏览器会自动滚回锚点，看着像「乱跳」，这里清掉 */
+if(location.hash){
+  try{ history.replaceState(null,'',location.pathname+location.search); }
+  catch(e){ try{ location.hash=''; }catch(e2){} }
+}
 render();
+/* 恢复上次离开时的滚动位置：刷新后原地继续，不回第一天 */
+if(lastScroll>0) setTimeout(function(){ window.scrollTo({top:lastScroll,behavior:'auto'}); },80);
 })();
