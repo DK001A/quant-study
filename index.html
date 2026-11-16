@@ -195,6 +195,8 @@
   .ledger-edit-row td{background:var(--primary-soft)}
   .td-short{max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--soft)}
   .td-topic{max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lv-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+  @media(max-width:700px){.lv-stats{grid-template-columns:repeat(2,1fr)}}
   .ledger-editor{padding:14px 16px;text-align:left}
   .le-grid{display:grid;grid-template-columns:1fr 210px;gap:14px;margin-bottom:10px}
   .le-field{margin-bottom:9px}

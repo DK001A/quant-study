@@ -791,7 +791,7 @@ function viewLedger(){
   return '<section class="view">'+
     '<div class="sec-title">掌握度台账 · 每天收工填一行</div>'+
     '<div class="sec-desc">整套计划唯一需要长期维护的表。<b>当天填、不补记</b>；证据必须可核对（文件路径 / commit / 题号），不许写「懂了」。填完点「导出」把 markdown 存进项目的 <code>notes/</code> 目录。期末要求全部 ≥ L2，阶段出口知识点 = L3。</div>'+
-    '<div class="grid3" style="margin-bottom:16px">'+window.LEVELS.map(function(l){
+    '<div class="lv-stats">'+window.LEVELS.map(function(l){
       return '<div class="card"><div class="lv-tag" style="font-family:var(--mono);font-size:12px;color:var(--primary)">'+l.k+' '+l.n+'</div>'+
         '<div style="font-family:var(--mono);font-size:22px;font-weight:600;margin:6px 0">'+(cnt[l.k]||0)+'</div>'+
         '<div style="font-size:12px;color:var(--soft)">'+esc(l.how)+'</div></div>';
